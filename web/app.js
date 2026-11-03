@@ -24,6 +24,7 @@ let busy = false;
 let swapFrom = null;
 let captureCancelled = false;
 let lastBackup = null;
+let rebootPromptShown = false;
 let layoutQueue = Promise.resolve();
 let layoutSaving = 0;
 let layoutLoadFailed = false;
@@ -72,9 +73,10 @@ async function api(path, data, method = 'POST') {
 function run(action) {
   return async (event) => { try { await action(event); } catch (error) { message(() => errorText(error), 'error'); } };
 }
-function askConfirm(title, text, accept = t('common.confirm')) {
+function askConfirm(title, text, accept = t('common.confirm'), cancel = t('common.cancel')) {
   const dialog = $('confirmDialog');
   $('confirmTitle').textContent = title; $('confirmText').textContent = text; $('confirmAccept').textContent = accept;
+  $('confirmCancel').textContent = cancel;
   return new Promise((resolve) => {
     dialog.returnValue = '';
     dialog.addEventListener('close', () => resolve(dialog.returnValue === 'accept'), { once: true });
@@ -128,6 +130,7 @@ function render() {
   $('connect').textContent = busy ? t('connection.busy') : linked ? t('connection.reload') : t('connection.connect');
   $('target').disabled = busy;
   $('backup').disabled = !linked || busy;
+  $('reboot').disabled = !linked || busy;
   $('deviceMismatch').hidden = !connection || matchingDevice();
   $('rebindDevice').disabled = busy;
   $('profile').disabled = !linked || busy;
@@ -627,11 +630,13 @@ $('closeReview').addEventListener('click', () => $('reviewDialog').close());
 $('reviewDialog').addEventListener('cancel', (event) => { if (busy) event.preventDefault(); });
 $('save').addEventListener('click', run(async () => {
   const currentIndex = profileIndex; const edits = changes();
+  let saved = false;
   setBusy(true); $('save').disabled = true; $('closeReview').disabled = true; $('save').textContent = t('save.working');
   try {
     await layoutQueue;
     const result = await api('save', { token: connection.token, profileIndex: currentIndex, changes: edits });
     connection.snapshot = result.snapshot; drafts[currentIndex] = structuredClone(result.snapshot.profiles[currentIndex]); lastBackup = result.backup;
+    saved = true;
     message(() => t('save.done'));
   } catch (error) {
     if (error.backup) lastBackup = error.backup;
@@ -641,7 +646,39 @@ $('save').addEventListener('click', run(async () => {
   } finally {
     $('reviewDialog').close(); $('save').disabled = false; $('closeReview').disabled = false; $('save').textContent = t('save.confirm'); setBusy(false);
   }
+  if (saved && !rebootPromptShown) {
+    rebootPromptShown = true;
+    await rebootDevice(true);
+  }
 }));
+function disconnectDevice() {
+  connection = null; drafts = []; profileIndex = 0; swapFrom = null;
+  $('deviceInfo').hidden = true;
+  for (const id of ['profile', 'copySource']) {
+    const option = document.createElement('option'); option.textContent = t('profile.connectFirst');
+    $(id).replaceChildren(option);
+  }
+}
+async function rebootDevice(afterSave = false) {
+  if (!connection || busy) return;
+  setBusy(true);
+  try {
+    const warning = allDirty() ? `${t('reboot.body')} ${t('reboot.unsaved')}` : t('reboot.body');
+    if (!await askConfirm(t('reboot.title'), warning, t('reboot.action'), afterSave ? t('reboot.later') : t('common.cancel'))) return;
+    await layoutQueue;
+    message(() => t('reboot.working'));
+    try {
+      await api('reboot', { token: connection.token });
+      disconnectDevice();
+      message(() => t('reboot.done'));
+    } catch (error) {
+      if (error.uncertain || !error.status || error.errorMessage?.key === 'error.session') disconnectDevice();
+      if (!error.status) throw new I18nError('error.rebootUncertain');
+      throw error;
+    }
+  } finally { setBusy(false); }
+}
+$('reboot').addEventListener('click', run(() => rebootDevice()));
 async function getBackup(name) { const mappingName = name.replace('.json', '.gp2040'); const data = await api(`backups/${mappingName}`, undefined, 'GET'); download(data, `gp2040-mappings-${mappingName}`); }
 $('backup').addEventListener('click', run(async () => { setBusy(true); try { const result = await api('backup', { token: connection.token }); lastBackup = result.name; await getBackup(lastBackup); message(() => t('backup.downloaded')); } finally { setBusy(false); } }));
 $('downloadBackup').addEventListener('click', run(() => getBackup(lastBackup)));

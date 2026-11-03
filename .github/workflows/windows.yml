@@ -60,9 +60,7 @@ jobs:
         with:
           name: HitboxMap-windows-amd64
           path: |
-            dist/HitboxMap.exe
             dist/HitboxMap-windows-amd64.zip
-            dist/SHA256SUMS.txt
             dist/release-notes.md
           if-no-files-found: error
           retention-days: 30
@@ -86,7 +84,7 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $assets = @('dist/HitboxMap.exe', 'dist/HitboxMap-windows-amd64.zip', 'dist/SHA256SUMS.txt')
+          $assets = @('dist/HitboxMap-windows-amd64.zip')
           foreach ($path in ($assets + 'dist/release-notes.md')) {
             if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) {
               throw "Missing or empty release file: $path"

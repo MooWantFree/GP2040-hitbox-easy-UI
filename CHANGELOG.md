@@ -9,9 +9,10 @@
 - GP2040、Xbox、PlayStation、Switch 和 Arcade 按钮表记。
 - 英语、简体中文、日语，自动语言匹配及自定义 JSON 翻译。
 - Windows 托盘、重复启动复用，以及端口冲突时自动换端口。
-- GitHub Actions 编译 Windows x64 EXE、ZIP 和校验文件，推送到 `master` 或推送版本标签后自动发布 Release。
+- GitHub Actions 编译 Windows x64 程序，推送到 `master` 或推送版本标签后自动发布 ZIP 包。
 - 中文、英文和日文使用说明，附英文界面截图。
 - 布局多选，支持整体拖动、方向键微调、按比例调整大小和批量删除。
+- 在管理页重启设备，恢复游戏输入。每次打开网页后的首次成功保存会询问是否重启，选择不重启后不再重复提示。
 
 ### Changed
 

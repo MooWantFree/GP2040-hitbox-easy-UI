@@ -38,7 +38,7 @@ Button positions, shapes, names and input bindings save automatically. Once the 
 1. Select **Remap**. Under **Button labels**, choose GP2040, Xbox, PlayStation, Switch or Arcade.
 2. Click a button on the canvas, then choose its output in the right panel.
 3. Click **Save to device**, review the changes and click **Confirm save**.
-4. Open **More → Firmware settings** and reboot the device into controller mode.
+4. The first successful save after opening the page asks whether to restart. Choose **Restart device** to leave Web Config mode and play with your saved mappings. Choose **Not now** to skip the prompt for subsequent saves on this page. You can restart later through **More → Restart device**.
 
 Button labels change the displayed names only. Use Firmware settings to change the input mode, SOCD, macros or lighting. Keep a Menu / Start output available so you can enter Web Config mode again.
 

@@ -217,7 +217,7 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch path {
-	case "/api/connect", "/api/capture", "/api/backup", "/api/save":
+	case "/api/connect", "/api/capture", "/api/backup", "/api/save", "/api/reboot":
 	default:
 		sendError(w, 404, messageError("error.endpoint"))
 		return
@@ -281,6 +281,18 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s := a.session
 	switch path {
+	case "/api/reboot":
+		// The firmware leaves Web Config after accepting this request. Never reuse
+		// the old session, even if the USB connection closes before its response.
+		a.session = nil
+		result, err := a.device(ctx, s.Target, "reboot", object{"bootMode": 0})
+		if err != nil || result["success"] != true {
+			failure := errorResponse(messageError("error.rebootUncertain"))
+			failure["uncertain"] = true
+			sendJSON(w, 502, failure)
+			return
+		}
+		sendJSON(w, 200, object{"rebooting": true})
 	case "/api/capture":
 		result, err := a.device(ctx, s.Target, "getHeldPins", nil)
 		if err != nil {
