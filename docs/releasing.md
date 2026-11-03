@@ -1,20 +1,32 @@
 # GitHub 构建与发布
 
-上传 `manager` 内的文件到仓库根目录，保留隐藏目录 `.github/`。不要上传 `data/`、`.qa/` 和本地 EXE；这些路径已加入 `.gitignore`。
+## 推送后自动发布
 
-## 只编译 EXE
+将代码提交并推送到 `master`：
 
-1. 将代码推送到默认分支。
-2. 打开 GitHub 的 **Actions → Windows build → Run workflow**。
-3. 运行完成后，在该次运行的 **Artifacts** 下载 `HitboxMap-windows-amd64`。
+```powershell
+git push origin master
+```
 
-里面包含单独的 EXE、含语言文件的 ZIP，以及 `SHA256SUMS.txt`。普通分支推送和手动运行只上传构建产物，不创建 Release。`main` / `master` 推送和 Pull Request 也会运行测试和编译。
+GitHub Actions 会运行测试、编译 Windows x64 程序，然后发布一个 `build-运行编号` 的 Release，例如 `build-2`。在仓库的 **Releases** 中可以下载：
 
-工作流需先存在于默认分支，GitHub 才会提供手动运行入口。[GitHub 手动运行说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+- `HitboxMap.exe`：直接运行的程序。
+- `HitboxMap-windows-amd64.zip`：程序、使用说明和语言文件。
+- `SHA256SUMS.txt`：EXE 和 ZIP 的 SHA-256 校验值。
+
+所有附件上传成功后才会公开发布，并标记为 Latest。测试或编译失败时不会发布。每次推送保留独立的 Release；重跑同一次工作流会继续未完成的草稿，已经发布的文件保持不变。
+
+自动标签指向触发该次构建的提交。工作流使用 [GitHub CLI 的 `--target` 参数](https://cli.github.com/manual/gh_release_create) 固定提交，运行编号采用 [`GITHUB_RUN_NUMBER`](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)。
 
 ## Changelog 写在哪里
 
-写在仓库根目录的 `CHANGELOG.md`。平时将变更记在 `## [Unreleased]` 下。发布前，把本次条目移到对应版本的标题下，例如：
+写在仓库根目录的 `CHANGELOG.md`，平时将变更记在 `## [Unreleased]` 下。推送 `master` 时，这部分会作为 Release 说明，并附上提交和构建链接。
+
+保留 `Unreleased` 标题即可；内容为空时使用简短的默认说明。工作流不会自动清空或改写 Changelog。
+
+## 使用版本号发布
+
+需要 `v0.1.0` 这样的版本号时，把本次条目移到对应版本的标题下：
 
 ```markdown
 ## [Unreleased]
@@ -30,27 +42,27 @@
 - 语言选择移到顶部栏。
 ```
 
-版本标题用 `0.1.0`，Git 标签用 `v0.1.0`。提交 Changelog 与代码后，再创建标签：
+提交 Changelog 与代码后，再创建并推送标签：
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-工作流会测试、编译，提取 `## [0.1.0]` 到下一个二级标题之间的内容，写入 **Release 草稿**并附上 EXE、ZIP 和校验文件。在仓库的 Releases 中检查草稿，点击 **Publish release** 即可发布。
+工作流会测试、编译，提取 `## [0.1.0]` 下的内容并自动发布 Release，附件与普通推送相同。缺少对应标题、标题重复或内容为空会让工作流失败。`v0.1.0-rc.1` 这类标签会发布为 Prerelease，不标记为 Latest。
 
-缺少对应标题、标题重复或内容为空会让工作流失败，避免发布时误用别的版本说明。`v0.1.0-rc.1` 这类标签会生成预发布草稿。重新运行同一个标签可更新尚未发布的草稿；已经发布的 Release 不会被覆盖，请使用新版本号。
+## 只编译 EXE
 
-Release 草稿中的说明也可以直接在 GitHub 编辑；为了保留记录，建议同步修改 `CHANGELOG.md`。草稿重跑时会重新读取标签提交中的 Changelog。
+打开 **Actions → Windows build → Run workflow**。运行完成后，在该次运行的 **Artifacts** 下载 `HitboxMap-windows-amd64`。手动运行和 Pull Request 只测试、编译并上传产物，不创建 Release。
 
-发布使用 GitHub 自动提供的 `GITHUB_TOKEN`，只在 Release 任务授予 `contents: write`，无需单独配置个人令牌。流程通过 [`gh release create --notes-file`](https://cli.github.com/manual/gh_release_create) 读取发布说明。
+发布使用 GitHub 自动提供的 `GITHUB_TOKEN`，只在 Release 任务授予 `contents: write`，无需配置个人令牌。本地 `data/`、`.qa/` 和 EXE 已加入 `.gitignore`，无需提交。
 
-## 上传前本地检查
+## 本地检查
 
 ```powershell
 ./scripts/test.ps1
 ./scripts/build.ps1 -Package
-node scripts/release-notes.mjs --tag v0.1.0
+node scripts/release-notes.mjs --unreleased
 ```
 
-最后一条需要先在 `CHANGELOG.md` 中准备该版本的条目。本地校验和构建不会上传 GitHub；Actions 的实际运行结果在上传后查看。
+检查指定版本的说明时，改用 `node scripts/release-notes.mjs --tag v0.1.0`。

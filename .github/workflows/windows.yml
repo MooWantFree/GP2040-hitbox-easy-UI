@@ -2,7 +2,7 @@ name: Windows build
 
 on:
   push:
-    branches: [main, master]
+    branches: [master]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -37,11 +37,20 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - name: Check release notes
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Prepare release notes
+        if: github.event_name == 'push'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/release-notes.mjs --tag "$env:RELEASE_TAG" --output dist/release-notes.md
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            node scripts/release-notes.mjs --tag "$env:RELEASE_TAG" --output dist/release-notes.md
+          } else {
+            node scripts/release-notes.mjs --unreleased --output dist/release-notes.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not prepare release notes.' }
+          $commitUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/commit/$env:GITHUB_SHA"
+          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          Add-Content -LiteralPath dist/release-notes.md -Encoding utf8 -Value "`n[Commit]($commitUrl) · [Build]($runUrl)"
       - name: Test
         run: ./scripts/test.ps1
       - name: Build and package
@@ -59,7 +68,7 @@ jobs:
           retention-days: 30
 
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: windows-latest
     timeout-minutes: 10
@@ -70,23 +79,39 @@ jobs:
         with:
           name: HitboxMap-windows-amd64
           path: dist
-      - name: Create or update release draft
+      - name: Publish Windows release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
         run: |
           $ErrorActionPreference = 'Stop'
           $assets = @('dist/HitboxMap.exe', 'dist/HitboxMap-windows-amd64.zip', 'dist/SHA256SUMS.txt')
+          foreach ($path in ($assets + 'dist/release-notes.md')) {
+            if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) {
+              throw "Missing or empty release file: $path"
+            }
+          }
+          $prerelease = $env:GITHUB_REF_TYPE -eq 'tag' -and $env:RELEASE_TAG.Contains('-')
+          $releaseOptions = @(
+            ('--prerelease=' + $prerelease.ToString().ToLowerInvariant())
+            ('--latest=' + (!$prerelease).ToString().ToLowerInvariant())
+          )
           $draft = gh release view "$env:RELEASE_TAG" --json isDraft --jq '.isDraft' 2>$null
           if ($LASTEXITCODE -eq 0) {
-            if ($draft -ne 'true') { throw 'This release is already published. Use a new version tag.' }
+            if ($draft -ne 'true') {
+              Write-Output "Release $env:RELEASE_TAG is already published; keeping its existing files."
+              exit 0
+            }
             gh release edit "$env:RELEASE_TAG" --title "Hitbox Map $env:RELEASE_TAG" --notes-file dist/release-notes.md
             if ($LASTEXITCODE -ne 0) { throw 'Could not update release notes.' }
-            gh release upload "$env:RELEASE_TAG" @assets --clobber
           } else {
-            $options = @('--draft', '--verify-tag', '--title', "Hitbox Map $env:RELEASE_TAG", '--notes-file', 'dist/release-notes.md')
-            if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
-            gh release create "$env:RELEASE_TAG" @assets @options
+            $options = @('--draft', '--target', $env:GITHUB_SHA, '--title', "Hitbox Map $env:RELEASE_TAG", '--notes-file', 'dist/release-notes.md')
+            if ($env:GITHUB_REF_TYPE -eq 'tag') { $options += '--verify-tag' }
+            gh release create "$env:RELEASE_TAG" @options
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the release.' }
           }
-          if ($LASTEXITCODE -ne 0) { throw 'Could not create or update the release draft.' }
+          gh release upload "$env:RELEASE_TAG" @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload release files.' }
+          gh release edit "$env:RELEASE_TAG" --draft=false @releaseOptions
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release.' }
