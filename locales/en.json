@@ -37,7 +37,7 @@
     "layout.saveError": "Layout and bindings were not saved: {0} Export your layout as a backup.",
     "layout.readError": "Cannot read the saved layout: {0} Autosave is paused. Refresh to retry.",
     "layout.readBlocked": "The saved layout could not be read. Autosave is paused. Refresh or import a backup.",
-    "layout.moveHint": "Drag to move. Arrow keys make small adjustments.",
+    "layout.moveHint": "Click to select multiple controls. Drag or use arrow keys to move; click empty space to clear.",
     "layout.limit": "Up to 80 positions. A joystick uses four.",
     "layout.importTitle": "Import layout?",
     "layout.importBody": "Replace the current layout and physical bindings. Device mappings stay unchanged.",
@@ -257,6 +257,9 @@
     "tray.menuItem": "Cannot add a tray menu item",
     "tray.desktopRequired": "Cannot create the tray icon. Start the program on the Windows desktop",
     "tray.interaction": "Cannot configure tray interaction",
-    "tray.messages": "Tray message handling failed"
+    "tray.messages": "Tray message handling failed",
+    "layout.selected": "{0} selected",
+    "layout.deleteSelectedTitle": "Delete {0} controls?",
+    "layout.deleteSelectedBody": "Remove the selected controls and their input bindings, including all directions of selected joysticks. Device mappings are kept."
   }
 }

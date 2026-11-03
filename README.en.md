@@ -6,24 +6,22 @@ A local button mapper for GP2040-CE controllers. Arrange the buttons to match yo
 
 ![English remapping interface with an example layout](docs/images/remap-en.jpg)
 
-The screenshots show the English interface with a simulated device and an example layout.
-
 ## Start and connect
 
-1. Download the Windows x64 ZIP from [Releases](https://github.com/MooWantFree/GP2040-hitbox-easy-UI/releases) and extract it to a writable folder. If no release is available, follow the [build instructions](docs/releasing.md) to get a build from GitHub Actions.
-2. Double-click `HitboxMap.exe`. The management page opens in your browser and an icon appears in the system tray. No additional runtime or firmware flash is needed.
+1. Download the Windows x64 ZIP from [Releases](https://github.com/MooWantFree/GP2040-hitbox-easy-UI/releases) and extract it to a writable folder.
+2. Double-click `HitboxMap.exe`. The management page opens in your browser and an icon appears in the system tray. No firmware flash is needed.
 3. Hold Menu / Start while plugging in your controller to enter Web Config mode. If you changed the startup shortcut, use that shortcut instead.
 4. Enter the device address, normally `192.168.7.1`, and click **Connect**.
 
-The management page starts at `http://127.0.0.1:29301` by default. Launching the app again opens the existing instance. If another app occupies the port, Hitbox Map tries the next one.
+The default management page address is `http://127.0.0.1:29301`.
 
 ## Arrange the buttons
 
-Select **Layout** and drag a small circle, circle, capsule or joystick onto the canvas. Drag existing buttons to move them. Select a button to rename, resize or delete it. Drag the joystick by its central handle to move the whole group.
+Select **Layout** and drag a small circle, circle, capsule or joystick onto the canvas. Click a control to select it, then click others to add them to the selection. Click a selected control again to deselect it, or click empty space to clear the selection.
+
+Drag any selected control or use the arrow keys to move the selection together. Size and delete controls are above the canvas. With multiple controls selected, the size slider scales them by a percentage while keeping their relative sizes. A joystick moves, resizes and deletes as one control. Select a single button to rename it in the right panel.
 
 ![English layout editor with four draggable shapes](docs/images/layout-en.jpg)
-
-For keyboard controls, use Tab to focus a shape and press Enter or Space to add it at the center. Move it with the arrow keys; hold Shift for larger steps.
 
 ## Identify physical inputs
 
@@ -59,20 +57,3 @@ Layout edits save automatically; device mappings need confirmation. Avoid saving
 - Use **More → Export layout / Import layout** to back up or move the layout and its input bindings. Importing replaces the current layout.
 - **More → Back up device** downloads a `.gp2040` backup. The app also backs up before saving mappings. To restore it, import the file under **Data Backup and Restoration** in Firmware settings. The import takes effect immediately.
 - Local layouts and device backups live in the `data` folder beside the EXE. Copy it when moving to another computer. Before updating, exit through the tray, replace the EXE and keep `data` and your custom `locales` files.
-
-## Choose a language
-
-The language menu at the top offers English, 简体中文 and 日本語. **Auto** follows your browser preferences and falls back to English when no language matches. The tray menu follows your Windows user language.
-
-To add a translation:
-
-1. Copy `locales/en.json` to a new file, such as `locales/fr.json`, in the `locales` folder beside the EXE.
-2. Change `locale` to `fr` and `name` to the menu label, such as `Français`.
-3. Translate the text in `messages`. Keep the keys and placeholders such as `{0}` and `{1}`. Missing entries fall back to English.
-4. Save as UTF-8 and refresh the page to select the new language. Restart the app to reload tray translations.
-
-## Exit
-
-Closing the browser leaves the app running in the tray. Double-click the tray icon to reopen the page, or right-click it and choose **Exit** to close the app. Check the hidden icons area if you cannot see it.
-
-See the [release guide](docs/releasing.md) for build and release steps. Release notes belong in [CHANGELOG.md](CHANGELOG.md).

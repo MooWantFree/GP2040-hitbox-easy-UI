@@ -1,5 +1,6 @@
 import { OUTPUTS, LABEL_SETS, DIRECTIONS, DIRECTION_ARROWS, shapeMembers, outputLabel, outputName, outputColor, pinKey, pinKeys, protectedPin, selectedOutputs, isExtendedMapping, mappingLabel as describeMapping, makeMapping, profileChanges, validateLayout, validateMapping } from './model.js';
 import { t, I18nError, errorText, resolveLanguage, currentLanguage, setLanguage, availableLanguages, languageWarnings, loadLanguages, translatePage } from './i18n.js';
+import { shapeKey, selectionShapes, selectionMembers, movementDelta, scaleRange } from './layout-editor.js';
 
 const browserLanguages = () => navigator.languages?.length ? navigator.languages : [navigator.language || 'en'];
 let languagePreference = 'auto';
@@ -16,6 +17,8 @@ let connection = null;
 let drafts = [];
 let profileIndex = 0;
 let selectedId = null;
+let editSelection = new Set();
+let resizeBasis = null;
 let mode = 'map';
 let busy = false;
 let swapFrom = null;
@@ -26,10 +29,13 @@ let layoutSaving = 0;
 let layoutLoadFailed = false;
 let dragging = null;
 let suppressClick = false;
+let suppressClickTimer;
 let layoutSaved = false;
 let lastMessage = '', lastMessageType = '', layoutError = null;
 
 const selected = () => layout.buttons.find((b) => b.id === selectedId);
+const editingShapes = () => selectionShapes(layout.buttons, editSelection);
+const isSelected = (button) => mode === 'edit' ? editSelection.has(shapeKey(button)) : button.id === selectedId;
 const mappingLabel = (mapping) => describeMapping(mapping, layout.labelSet);
 const members = (button) => shapeMembers(layout.buttons, button);
 const updateShape = (button, values) => members(button).forEach((b) => Object.assign(b, values));
@@ -108,6 +114,8 @@ function profileName(index) { return connection?.snapshot.profiles[index]?.profi
 
 function render() {
   const button = selected();
+  const selection = editingShapes();
+  const multiple = mode === 'edit' && selection.length > 1;
   const draftChanges = changes();
   const dirty = Object.keys(draftChanges).length;
   const linked = Boolean(connection);
@@ -139,11 +147,29 @@ function render() {
   $('downloadBackup').hidden = !lastBackup;
   $('boundCount').textContent = t('layout.bound' , layout.buttons.filter((b) => b.pin !== null).length, layout.buttons.length);
   $('editTools').hidden = mode !== 'edit';
+  $('selectionCount').textContent = t('layout.selected', selection.length);
+  $('selectionCount').hidden = !selection.length;
+  $('sizeControl').hidden = !selection.length;
   $('shapePalette').hidden = mode !== 'edit';
   $('canvasEditor').classList.toggle('with-palette', mode === 'edit');
-  $('deleteButton').disabled = !button || busy;
-  $('deleteButton').textContent = button?.groupId ? t('joystick.delete') : t('common.delete');
-  $('buttonSize').disabled = !button || busy;
+  $('deleteButton').disabled = !selection.length || busy;
+  $('deleteButton').hidden = !selection.length;
+  $('deleteButton').textContent = selection.length === 1 && button?.groupId ? t('joystick.delete') : t('common.delete');
+  $('buttonSize').disabled = !selection.length || busy;
+  $('sizeValue').hidden = !multiple;
+  if (multiple) {
+    const key = JSON.stringify(selection.map(shapeKey).sort());
+    if (resizeBasis?.key !== key) resizeBasis = { key, shapes: selection.map((b) => ({ ...b })), value: 100 };
+    const range = scaleRange(resizeBasis.shapes);
+    Object.assign($('buttonSize'), { min: range.min, max: range.max, step: 1, value: resizeBasis.value });
+    $('buttonSize').disabled ||= range.min === range.max;
+    $('buttonSize').setAttribute('aria-valuetext', `${resizeBasis.value}%`);
+    $('sizeValue').textContent = `${resizeBasis.value}%`;
+  } else {
+    resizeBasis = null;
+    $('buttonSize').removeAttribute('aria-valuetext');
+    $('buttonSize').step = .2;
+  }
   $('board').classList.toggle('editing', mode === 'edit');
   for (const el of document.querySelectorAll('[data-mode]')) {
     el.classList.toggle('active', mode === el.dataset.mode);
@@ -170,8 +196,8 @@ function render() {
   $('modeHint').hidden = !$('modeHint').textContent;
   renderBoard(draftChanges);
   $('noSelection').hidden = Boolean(button);
-  $('selectionPanel').hidden = !button;
-  if (!button) return;
+  $('selectionPanel').hidden = !button || multiple;
+  if (!button || multiple) return;
   if (document.activeElement !== $('buttonName')) $('buttonName').value = button.name;
   $('buttonName').disabled = busy;
   $('buttonSize').min = button.shape === 'joystick' ? 12 : 2;
@@ -208,6 +234,7 @@ function render() {
 function renderBoard(draftChanges) {
   const focusedId = document.activeElement?.dataset?.buttonId;
   const focusedGroup = document.activeElement?.dataset?.gripId;
+  const focusedChip = document.activeElement?.dataset?.chipId;
   const hotspots = document.createDocumentFragment();
   const list = document.createDocumentFragment();
   const groups = new Map();
@@ -216,11 +243,11 @@ function renderBoard(draftChanges) {
     const outputs = selectedOutputs(mapping);
     const el = document.createElement('button');
     el.type = 'button'; el.dataset.buttonId = b.id;
-    el.className = `hotspot shape-${b.shape} ${b.direction ? `direction-${b.direction}` : ''} ${b.id === selectedId ? 'selected' : ''} ${b.pin === null ? 'unbound' : ''} ${draftChanges[pinKey(b.pin)] ? 'changed' : ''} ${outputs.length === 1 ? outputColor(outputs[0], layout.labelSet) : ''} ${swapFrom && b.id !== swapFrom ? 'swap-target' : ''}`;
+    el.className = `hotspot shape-${b.shape} ${b.direction ? `direction-${b.direction}` : ''} ${isSelected(b) ? 'selected' : ''} ${b.pin === null ? 'unbound' : ''} ${draftChanges[pinKey(b.pin)] ? 'changed' : ''} ${outputs.length === 1 ? outputColor(outputs[0], layout.labelSet) : ''} ${swapFrom && b.id !== swapFrom ? 'swap-target' : ''}`;
     if (!b.groupId) Object.assign(el.style, { left: `${b.x}%`, top: `${b.y}%`, width: `${b.size}%`, aspectRatio: SHAPES[b.shape].ratio });
     el.setAttribute('aria-label', `${b.name}, ${displayOutput(b)}`);
     el.title = `${b.name} · ${displayOutput(b)}`;
-    el.setAttribute('aria-pressed', String(b.id === selectedId));
+    el.setAttribute('aria-pressed', String(isSelected(b)));
     el.disabled = busy;
     const number = document.createElement('span'); number.className = 'key-index'; number.textContent = b.direction ? DIRECTION_ARROWS[b.direction] : String(i + 1).padStart(2, '0');
     number.hidden = Boolean(b.direction && (!mapping || mappingLabel(mapping) === DIRECTION_ARROWS[b.direction]));
@@ -229,13 +256,7 @@ function renderBoard(draftChanges) {
     el.addEventListener('click', run(() => { if (!suppressClick) return choose(b.id); }));
     el.addEventListener('pointerdown', (event) => startDrag(event, b));
     el.addEventListener('lostpointercapture', cancelPointerDrag);
-    el.addEventListener('keydown', run(async (event) => {
-      if (mode !== 'edit' || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
-      event.preventDefault();
-      const step = event.shiftKey ? 2 : .3;
-      updateShape(b, clampPosition(b, b.x + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0), b.y + (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0)));
-      selectedId = b.id; render(); await persistLayout();
-    }));
+    el.addEventListener('keydown', run((event) => editKeydown(event, b)));
     if (b.groupId) {
       if (!groups.has(b.groupId)) {
         const group = document.createElement('div'); group.className = 'joystick'; group.dataset.groupId = b.groupId;
@@ -243,15 +264,18 @@ function renderBoard(draftChanges) {
         const grip = document.createElement('button'); grip.type = 'button'; grip.className = 'joystick-grip'; grip.dataset.gripId = b.groupId;
         grip.setAttribute('aria-label', t('joystick.move')); grip.title = t('joystick.moveHint'); grip.disabled = busy || mode !== 'edit';
         grip.addEventListener('pointerdown', (event) => startDrag(event, b));
-        grip.addEventListener('click', () => { if (!suppressClick) { selectedId = b.id; render(); } });
-        grip.addEventListener('keydown', (event) => { if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) { event.preventDefault(); hotspotFor(b.id)?.focus(); hotspotFor(b.id)?.dispatchEvent(new KeyboardEvent('keydown', { key: event.key, shiftKey: event.shiftKey, bubbles: true })); } });
+        grip.setAttribute('aria-pressed', String(isSelected(b)));
+        grip.addEventListener('click', run(() => { if (!suppressClick) return choose(b.id); }));
+        grip.addEventListener('keydown', run((event) => editKeydown(event, b)));
         group.addEventListener('lostpointercapture', cancelPointerDrag);
         group.append(grip); groups.set(b.groupId, group); hotspots.append(group);
       }
       groups.get(b.groupId).append(el);
     } else hotspots.append(el);
     const chip = document.createElement('button');
-    chip.className = b.id === selectedId ? 'active' : ''; chip.disabled = busy;
+    chip.className = isSelected(b) ? 'active' : ''; chip.disabled = busy;
+    chip.dataset.chipId = b.id; chip.setAttribute('aria-pressed', String(isSelected(b)));
+    chip.addEventListener('keydown', run((event) => editKeydown(event, b)));
     const index = document.createElement('span'); index.className = 'mini-index'; index.textContent = String(i + 1).padStart(2, '0');
     const name = document.createElement('span'); name.textContent = b.name;
     const output = document.createElement('span'); output.className = 'mini-output'; output.textContent = displayOutput(b);
@@ -260,11 +284,20 @@ function renderBoard(draftChanges) {
   $('hotspots').replaceChildren(hotspots); $('keyList').replaceChildren(list);
   if (focusedId) hotspotFor(focusedId)?.focus({ preventScroll: true });
   else if (focusedGroup) $('hotspots').querySelector(`[data-grip-id="${focusedGroup}"]`)?.focus({ preventScroll: true });
+  else if (focusedChip) $('keyList').querySelector(`[data-chip-id="${focusedChip}"]`)?.focus({ preventScroll: true });
 }
 
 async function choose(id) {
   if (busy) return;
   const button = layout.buttons.find((b) => b.id === id);
+  if (mode === 'edit') {
+    const key = shapeKey(button);
+    if (editSelection.has(key)) editSelection.delete(key);
+    else editSelection.add(key);
+    selectedId = editSelection.has(key) ? id : editingShapes().at(-1)?.id ?? null;
+    render();
+    return;
+  }
   if (swapFrom) {
     const source = layout.buttons.find((b) => b.id === swapFrom);
     if (source.id === id) { swapFrom = null; render(); return; }
@@ -329,6 +362,39 @@ function dropPosition(event, button) {
   const y = (event.clientY - rect.top) / rect.height * 100;
   return x >= 0 && x <= 100 && y >= 0 && y <= 100 ? clampPosition(button, x, y) : null;
 }
+async function editKeydown(event, button) {
+  if (mode !== 'edit' || busy || dragging) return;
+  if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Delete'].includes(event.key)) return;
+  event.preventDefault();
+  if (!editSelection.has(shapeKey(button))) editSelection = new Set([shapeKey(button)]);
+  selectedId = button.id;
+  if (event.key === 'Delete') { if (!event.repeat) await deleteSelection(); return; }
+  const step = event.shiftKey ? 2 : .3;
+  const shapes = editingShapes(), rect = canvasBounds();
+  const delta = movementDelta(shapes,
+    event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0,
+    event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0, rect.width / rect.height);
+  for (const shape of shapes) updateShape(shape, { x: shape.x + delta.x, y: shape.y + delta.y });
+  render();
+  if (delta.x || delta.y) await persistLayout();
+}
+function clearSelection() {
+  editSelection.clear(); selectedId = null; render();
+  $('board').focus({ preventScroll: true });
+}
+async function deleteSelection() {
+  const shapes = editingShapes();
+  if (mode !== 'edit' || busy || !shapes.length || $('confirmDialog').open) return;
+  const button = shapes[0];
+  const title = shapes.length > 1 ? t('layout.deleteSelectedTitle', shapes.length)
+    : button.groupId ? t('joystick.deleteTitle') : t('layout.deleteTitle', button.name);
+  const body = shapes.length > 1 ? t('layout.deleteSelectedBody')
+    : button.groupId ? t('joystick.deleteBody') : t('layout.deleteBody');
+  const removed = new Set(selectionMembers(layout.buttons, editSelection).map((b) => b.id));
+  if (!await askConfirm(title, body, t('common.delete'))) return;
+  layout.buttons = layout.buttons.filter((b) => !removed.has(b.id));
+  clearSelection(); await persistLayout();
+}
 async function addShape(shape, x, y) {
   if (mode !== 'edit' || busy) return;
   if (layout.buttons.length + (shape === 'joystick' ? 4 : 1) > 80) throw new I18nError('layout.limit');
@@ -339,7 +405,7 @@ async function addShape(shape, x, y) {
     const number = new Set(layout.buttons.filter((b) => b.groupId).map((b) => b.groupId)).size + 1;
     for (const [direction, name] of Object.entries(DIRECTIONS)) layout.buttons.push({ ...button, id: direction === 'up' ? button.id : crypto.randomUUID(), name: t('joystick.name' , number, name), groupId, direction });
   } else layout.buttons.push(button);
-  selectedId = button.id; render();
+  selectedId = button.id; editSelection = new Set([shapeKey(layout.buttons.find((b) => b.id === button.id))]); render();
   hotspotFor(button.id)?.focus({ preventScroll: true });
   await persistLayout();
 }
@@ -349,9 +415,14 @@ function startDrag(event, button, shape) {
   event.preventDefault();
   // Finish editing the previous key before a drop changes the selection.
   if (document.activeElement === $('buttonName')) $('buttonName').blur();
-  const element = shape ? event.currentTarget : shapeElement(button);
+  const element = shape ? event.currentTarget : event.currentTarget.dataset.gripId
+    ? $('hotspots').querySelector(`[data-grip-id="${button.groupId}"]`) : hotspotFor(button.id);
   if (!element) return;
-  dragging = { type: shape ? 'new' : 'move', shape, button: button || { shape, size: SHAPES[shape].size }, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: button?.x, y: button?.y, moved: false, element };
+  // preventDefault suppresses mouse focus; restore it before capturing the pointer.
+  element.focus({ preventScroll: true });
+  const keys = button && editSelection.has(shapeKey(button)) ? editSelection : new Set(button ? [shapeKey(button)] : []);
+  const origins = selectionShapes(layout.buttons, keys).map((b) => ({ ...b }));
+  dragging = { type: shape ? 'new' : 'move', shape, button: button || { shape, size: SHAPES[shape].size }, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origins, keys: new Set(keys), selectionBefore: new Set(editSelection), selectedBefore: selectedId, moved: false, element };
   element.setPointerCapture(event.pointerId);
   document.body.classList.add('drag-active');
   if (shape) {
@@ -366,7 +437,17 @@ window.addEventListener('pointermove', (event) => {
   if (!dragging || dragging.pointerId !== event.pointerId) return;
   const rect = canvasBounds();
   const dx = event.clientX - dragging.startX, dy = event.clientY - dragging.startY;
-  if (Math.hypot(dx, dy) > 4) dragging.moved = true;
+  if (!dragging.moved && Math.hypot(dx, dy) > 4) {
+    dragging.moved = true;
+    if (dragging.type === 'move') {
+      editSelection = new Set(dragging.keys); selectedId = dragging.button.id;
+      for (const button of layout.buttons) {
+        const el = hotspotFor(button.id);
+        el?.classList.toggle('selected', isSelected(button));
+        el?.setAttribute('aria-pressed', String(isSelected(button)));
+      }
+    }
+  }
   if (!dragging.moved) return;
   const b = dragging.button;
   if (dragging.type === 'new') {
@@ -376,8 +457,13 @@ window.addEventListener('pointermove', (event) => {
     dragging.preview.classList.toggle('outside', !position);
     Object.assign(dragging.preview.style, { width: `${rect.width * b.size / 100}px`, left: `${position ? rect.left + position.x / 100 * rect.width : event.clientX}px`, top: `${position ? rect.top + position.y / 100 * rect.height : event.clientY}px` });
   } else {
-    updateShape(b, clampPosition(b, dragging.x + dx / rect.width * 100, dragging.y + dy / rect.height * 100));
-    dragging.element.style.left = `${b.x}%`; dragging.element.style.top = `${b.y}%`;
+    const delta = movementDelta(dragging.origins, dx / rect.width * 100, dy / rect.height * 100, rect.width / rect.height);
+    for (const origin of dragging.origins) {
+      const button = layout.buttons.find((item) => item.id === origin.id);
+      updateShape(button, { x: origin.x + delta.x, y: origin.y + delta.y });
+      const el = shapeElement(button);
+      el.style.left = `${button.x}%`; el.style.top = `${button.y}%`;
+    }
   }
 });
 function clearDrag() {
@@ -385,13 +471,18 @@ function clearDrag() {
   if (!drag) return null;
   drag.preview?.remove(); $('board').classList.remove('drop-ready'); document.body.classList.remove('drag-active');
   if (drag.element.hasPointerCapture(drag.pointerId)) drag.element.releasePointerCapture(drag.pointerId);
-  suppressClick = drag.moved;
-  setTimeout(() => { suppressClick = false; }, 100);
+  // Pointer-up handles selection. Ignore the compatibility click that follows it.
+  suppressClick = true;
+  clearTimeout(suppressClickTimer);
+  suppressClickTimer = setTimeout(() => { suppressClick = false; }, 100);
   return drag;
 }
 function cancelDragging() {
   const drag = clearDrag();
-  if (drag?.type === 'move') { updateShape(drag.button, { x: drag.x, y: drag.y }); render(); }
+  if (drag?.type === 'move') {
+    for (const origin of drag.origins) updateShape(layout.buttons.find((button) => button.id === origin.id), { x: origin.x, y: origin.y });
+    editSelection = drag.selectionBefore; selectedId = drag.selectedBefore; render();
+  }
 }
 function cancelPointerDrag(event) { if (dragging?.pointerId === event.pointerId) cancelDragging(); }
 window.addEventListener('pointerup', run(async (event) => {
@@ -401,13 +492,23 @@ window.addEventListener('pointerup', run(async (event) => {
     const position = drag.moved && dropPosition(event, drag.button);
     if (position) await addShape(drag.shape, position.x, position.y);
   } else {
-    selectedId = drag.button.id; render(); if (drag.moved) await persistLayout();
+    if (drag.moved) { render(); await persistLayout(); }
+    else await choose(drag.button.id);
   }
 }));
 window.addEventListener('pointercancel', cancelPointerDrag);
 window.addEventListener('blur', cancelDragging);
 window.addEventListener('resize', cancelDragging);
-window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && dragging) { event.preventDefault(); cancelDragging(); } });
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (dragging) { event.preventDefault(); cancelDragging(); }
+  else if (mode === 'edit' && !document.querySelector('dialog[open]') && event.target.closest('#board,#keyList,#editTools')) {
+    event.preventDefault(); clearSelection();
+  }
+});
+$('board').addEventListener('click', (event) => {
+  if (mode === 'edit' && !busy && !suppressClick && !event.target.closest('button')) clearSelection();
+});
 for (const el of document.querySelectorAll('[data-shape]')) {
   el.addEventListener('pointerdown', (event) => startDrag(event, null, el.dataset.shape));
   el.addEventListener('lostpointercapture', cancelPointerDrag);
@@ -436,7 +537,11 @@ for (const output of OUTPUTS) {
   }));
   $('outputs').append(button);
 }
-for (const el of document.querySelectorAll('[data-mode]')) el.addEventListener('click', () => { cancelDragging(); mode = el.dataset.mode; swapFrom = null; render(); });
+for (const el of document.querySelectorAll('[data-mode]')) el.addEventListener('click', () => {
+  cancelDragging();
+  if (mode !== el.dataset.mode) editSelection = new Set(selected() ? [shapeKey(selected())] : []);
+  mode = el.dataset.mode; swapFrom = null; render();
+});
 for (const el of document.querySelectorAll('[data-label-set]')) el.addEventListener('click', run(async () => { if (busy || layout.labelSet === el.dataset.labelSet) return; cancelDragging(); layout.labelSet = el.dataset.labelSet; render(); await persistLayout(); }));
 $('identifySelected').addEventListener('click', run(capture));
 $('captureDialog').addEventListener('close', () => { captureCancelled = true; });
@@ -444,14 +549,25 @@ $('captureDialog').addEventListener('cancel', () => { captureCancelled = true; }
 $('combo').addEventListener('change', render);
 $('swap').addEventListener('click', () => { swapFrom = swapFrom ? null : selectedId; render(); });
 $('buttonName').addEventListener('change', run(async () => { if (!selected()) return; selected().name = $('buttonName').value.trim() || t('layout.unnamed'); render(); await persistLayout(); }));
-$('buttonSize').addEventListener('input', () => { const button = selected(); if (button) { updateShape(button, { size: Number($('buttonSize').value) }); updateShape(button, clampPosition(button, button.x, button.y)); render(); } });
+$('buttonSize').addEventListener('input', () => {
+  if (mode !== 'edit' || busy || !selected()) return;
+  const value = Number($('buttonSize').value);
+  const shapes = editingShapes();
+  if (shapes.length > 1 && resizeBasis) {
+    resizeBasis.value = value;
+    for (const button of shapes) {
+      const original = resizeBasis.shapes.find((b) => shapeKey(b) === shapeKey(button));
+      updateShape(button, { size: original.size * value / 100 });
+      updateShape(button, clampPosition(button, button.x, button.y));
+    }
+  } else if (shapes.length === 1) {
+    updateShape(selected(), { size: value });
+    updateShape(selected(), clampPosition(selected(), selected().x, selected().y));
+  }
+  render();
+});
 $('buttonSize').addEventListener('change', run(persistLayout));
-$('deleteButton').addEventListener('click', run(async () => {
-  const button = selected(); if (!button) return;
-  if (!await askConfirm(button.groupId ? t('joystick.deleteTitle') : t('layout.deleteTitle' , button.name), button.groupId ? t('joystick.deleteBody') : t('layout.deleteBody'), t('common.delete'))) return;
-  const removed = new Set(members(button).map((b) => b.id));
-  layout.buttons = layout.buttons.filter((b) => !removed.has(b.id)); selectedId = null; render(); await persistLayout();
-}));
+$('deleteButton').addEventListener('click', run(deleteSelection));
 $('rebindDevice').addEventListener('click', run(async () => {
   if (!await askConfirm(t('device.rebindTitle'), t('device.rebindBody'), t('device.clearBindings'))) return;
   layout.buttons.forEach((b) => { b.pin = null; }); layout.deviceKey = connection.deviceKey; mode = 'identify'; render(); await persistLayout();
@@ -538,7 +654,7 @@ $('layoutInput').addEventListener('change', run(async () => {
   try { parsed = JSON.parse(await file.text()); } catch { throw new I18nError('error.layoutImport'); }
   const imported = validateLayout(parsed);
   if (!await askConfirm(t('layout.importTitle'), t('layout.importBody'), t('layout.importAccept'))) return;
-  layoutLoadFailed = false; layout = imported; selectedId = null; swapFrom = null; render(); await persistLayout(); message(() => t('layout.imported'));
+  layoutLoadFailed = false; layout = imported; selectedId = null; editSelection.clear(); swapFrom = null; render(); await persistLayout(); message(() => t('layout.imported'));
 }));
 $('help').addEventListener('click', () => $('helpDialog').showModal());
 function renderLanguageSelector() {

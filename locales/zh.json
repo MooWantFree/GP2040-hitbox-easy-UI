@@ -37,7 +37,7 @@
     "layout.saveError": "布局与识别尚未保存：{0} 请先导出布局备份。",
     "layout.readError": "无法读取本机布局：{0} 已停止自动覆盖，请刷新重试。",
     "layout.readBlocked": "本地布局读取失败，已停止自动覆盖。请刷新重试，或导入已备份的布局。",
-    "layout.moveHint": "拖动调整位置，也可用方向键微调。",
+    "layout.moveHint": "点击可多选，拖动或用方向键移动；点击空白处取消选择。",
     "layout.limit": "最多支持 80 个按键，摇杆占 4 个方向。",
     "layout.importTitle": "导入布局？",
     "layout.importBody": "替换当前的位置与实体键绑定，设备映射会保留。",
@@ -257,6 +257,9 @@
     "tray.menuItem": "无法添加托盘菜单",
     "tray.desktopRequired": "无法创建托盘图标，请在 Windows 桌面中启动程序",
     "tray.interaction": "无法设置托盘交互",
-    "tray.messages": "托盘消息处理失败"
+    "tray.messages": "托盘消息处理失败",
+    "layout.selected": "已选择 {0} 个",
+    "layout.deleteSelectedTitle": "删除选中的 {0} 个控件？",
+    "layout.deleteSelectedBody": "删除所选控件及其绑定，包括摇杆的全部方向。设备映射保留。"
   }
 }

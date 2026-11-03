@@ -168,7 +168,7 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(204)
 			return
 		}
-		static := map[string]string{"/": "index.html", "/style.css": "style.css", "/app.js": "app.js", "/model.js": "model.js", "/i18n.js": "i18n.js"}
+		static := map[string]string{"/": "index.html", "/style.css": "style.css", "/app.js": "app.js", "/model.js": "model.js", "/i18n.js": "i18n.js", "/layout-editor.js": "layout-editor.js"}
 		if name, ok := static[path]; ok {
 			data, err := web.Files.ReadFile(name)
 			if err != nil {
