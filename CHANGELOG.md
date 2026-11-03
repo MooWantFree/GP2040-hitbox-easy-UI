@@ -1,0 +1,18 @@
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- 按布局位置识别实体按键，并为 GP2040-CE 设置输出、组合输出和配置档。
+- 拖入小圆点、圆形、胶囊或四方向摇杆，自动保存布局与识别绑定。
+- GP2040、Xbox、PlayStation、Switch 和 Arcade 按钮表记。
+- 英语、简体中文、日语，自动语言匹配及自定义 JSON 翻译。
+- Windows 托盘、重复启动复用，以及端口冲突时自动换端口。
+- GitHub Actions 编译 Windows x64 EXE、ZIP 和校验文件，并按版本标签创建 Release 草稿。
+- 中文、英文和日文使用说明，附英文界面截图。
+
+### Changed
+
+- 语言选择直接显示在顶部栏。
+- 源码、前端、测试、构建脚本和文档按目录整理。

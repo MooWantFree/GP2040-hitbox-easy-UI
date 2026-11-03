@@ -1,0 +1,8 @@
+/data/
+/.qa/
+/dist/
+*.exe
+*.exe~
+*.test
+*.out
+.DS_Store
